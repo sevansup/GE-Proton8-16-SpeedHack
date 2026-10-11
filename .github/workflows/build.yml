@@ -1,0 +1,104 @@
+name: Build GE-Proton8-16 SpeedHack
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build.yml'
+      - 'scripts/**'
+      - 'patches/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: speedhack-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SDK: registry.gitlab.steamos.cloud/proton/sniper/sdk:0.20230905.59202-0
+
+jobs:
+  build:
+    name: Build ${{ matrix.bits }}-bit components
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        bits: [64, 32]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Report runner capacity
+        run: |
+          df -h /
+          free -h
+      - name: Prepare exact GE sources and apply speedhack patches
+        run: python3 scripts/prepare.py work/ge
+      - name: Pull GE's original build SDK
+        run: docker pull "$SDK"
+      - name: Compile only changed runtime components
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --volume "$GITHUB_WORKSPACE:/work" --workdir /work \
+            "$SDK" bash scripts/build-components.sh '${{ matrix.bits }}' \
+            2>&1 | tee build-${{ matrix.bits }}.log
+      - name: Upload compiled components and timer test
+        uses: actions/upload-artifact@v4
+        with:
+          name: components-${{ matrix.bits }}
+          path: |
+            output/overlay${{ matrix.bits }}.tar.gz
+            output/tests/timer${{ matrix.bits }}.exe
+          retention-days: 7
+          if-no-files-found: error
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ matrix.bits }}
+          path: build-${{ matrix.bits }}.log
+          retention-days: 7
+
+  package:
+    name: Audit, test, and package for Steam Deck
+    needs: build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: components-*
+          merge-multiple: true
+          path: output
+      - name: Download and verify the original GE archive
+        run: bash scripts/download-base.sh work/base
+      - name: Overlay components and audit unchanged GE files
+        run: python3 scripts/package.py
+      - name: Check 32-bit and 64-bit speed switching
+        run: |
+          docker pull "$SDK"
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --volume "$GITHUB_WORKSPACE:/work" --workdir /work \
+            "$SDK" bash scripts/smoke-test.sh 2>&1 | tee output/timer-tests.log
+      - name: Create installable archive preserving Linux permissions and symlinks
+        run: |
+          cd output/package
+          zip -q -r -y ../GE-Proton8-16-SpeedHack.zip GE-Proton8-16-SpeedHack
+          cd ..
+          unzip -tq GE-Proton8-16-SpeedHack.zip
+          sha256sum GE-Proton8-16-SpeedHack.zip > GE-Proton8-16-SpeedHack.zip.sha256
+      - name: Upload Steam Deck download
+        uses: actions/upload-artifact@v4
+        with:
+          name: GE-Proton8-16-SpeedHack-download
+          path: |
+            output/GE-Proton8-16-SpeedHack.zip
+            output/GE-Proton8-16-SpeedHack.zip.sha256
+            output/changed-files.json
+            output/timer-tests.log
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: error

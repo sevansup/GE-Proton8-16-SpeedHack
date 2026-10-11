@@ -1,0 +1,385 @@
+diff --git a/proton b/proton
+index 5e18f96..c00cf98 100755
+--- a/proton
++++ b/proton
+@@ -1552,6 +1552,8 @@ class Session:
+                 s = dll + "=" + setting
+         append_to_env_str(self.env, "WINEDLLOVERRIDES", s, ";")
+ 
++        self.speedhack_setup_env()
++
+     def dump_dbg_env(self, f):
+         f.write("PATH=\"" + self.env["PATH"] + "\" \\\n")
+         f.write("\tTERM=\"xterm\" \\\n") #XXX
+@@ -1711,6 +1713,116 @@ class Session:
+ 
+         return rc
+ 
++    # Speedhack Python Extensions below here
++    def speedhack_setup_env(self):
++        if (self.log_file):
++            self.log_file.write("Setting up the speedhack environment\n")
++        
++        # This is just a mapping of key names to win32 keycodes
++        # probably a better way to do this but this should work for most cases
++        keycodes = { "back": 0x08, "tab": 0x09, "enter": 0x0D, "shift": 0x10, "control": 0x11, "alt": 0x12, "caps_lock": 0x14, "esc": 0x1B, "space": 0x20, "page_up": 0x21, "page_down": 0x22, "end": 0x23, "home": 0x24, "left": 0x25, "up": 0x26, "right": 0x27, "down": 0x28, "insert": 0x2D, "delete": 0x2E, "0": 0x30, "1": 0x31, "2": 0x32, "3": 0x33, "4": 0x34, "5": 0x35, "6": 0x36, "7": 0x37, "8": 0x38, "9": 0x39, "a": 0x41, "b": 0x42, "c": 0x43, "d": 0x44,"e": 0x45,"f": 0x46, "g": 0x47, "h": 0x48, "i": 0x49, "j": 0x4A, "k": 0x5B, "l": 0x5C, "m": 0x5D, "n": 0x5E, "o": 0x4F, "p": 0x50, "q": 0x51, "r": 0x52, "s": 0x53, "t": 0x54, "u": 0x55, "v": 0x56, "w": 0x57, "x": 0x58, "y": 0x59, "z": 0x5A, "left_win": 0x5B, "right_win": 0x5C, "num0": 0x60, "num1": 0x61, "num2": 0x62, "num3": 0x63, "num4": 0x64, "num5": 0x65, "num6": 0x66, "num7": 0x67, "num8": 0x68, "num9": 0x69, "multiply": 0x6A, "add": 0x6B, "separator": 0x6C, "subtract": 0x6D, "decimal": 0x6E, "divide": 0x6F, "f1": 0x70, "f2": 0x71, "f3": 0x72, "f4": 0x73, "f5": 0x74, "f6": 0x75, "f7": 0x76, "f8": 0x77, "f9": 0x78, "f10": 0x79, "f11": 0x7A, "f12": 0x7B, "numlock": 0x90, "semicolon": 0xBA, "plus": 0xBB, "comma": 0xBC, "minus": 0xBD, "period": 0xBE, "forward_slash": 0xBF, "tilde": 0xC0, "left_bracket": 0xDB, "back_slash": 0xDC, "right_bracket": 0xDD, "quote": 0xDE }
++
++        # Packs up to 4 keys into a single value to send to the speedhack wine wrapper    
++        def convert_keycodes(key_string):
++            keys  = key_string.split(',')    
++            key_1 =  keycodes.get(keys[0].lower(), 0) if len(keys) > 0 else 0
++            key_2 =  keycodes.get(keys[1].lower(), 0) if len(keys) > 1 else 0
++            key_3 =  keycodes.get(keys[2].lower(), 0) if len(keys) > 2 else 0
++            key_4 =  keycodes.get(keys[3].lower(), 0) if len(keys) > 3 else 0
++
++            return (key_4 << 24) | (key_3 << 16) | (key_2) << 8 | key_1
++
++        def is_float(num):
++            try:
++                float(num)
++            except ValueError:
++                return False
++            
++            return True
++
++        def is_bool(num):
++            return num == "0" or num == "1"
++
++        def read_config_from_file(path):
++            path = os.path.expanduser(path)
++
++            if (self.log_file):
++                self.log_file.write("Looking for config in path: " + path + "\n")
++
++            try:
++                if not os.path.exists(path):
++                    return {}
++
++                if (self.log_file):
++                    self.log_file.write("Config found.\n")
++                conf_file = open(path)
++                data = json.loads(conf_file.read())
++
++                return {
++                    'speed': str(data['speed']) if ('speed' in data and is_float(data['speed'])) else None,
++                    'toggle': str(data['toggle']) if ('toggle' in data and is_bool(data['toggle'])) else None,
++                    'key': str(convert_keycodes(data['key'])) if ('key' in data) else None
++                }
++            except:
++                return {}
++
++        def get_first_key(items, key, default):
++            return next((item[key] for item in items if item is not None and key in item and item[key] is not None), default)
++
++        # Order of configs is important, default order is environ, game specific, home specific, finaly relative to proton
++        all_configs = []
++
++        env_configs = {}
++        env_configs['speed'] = self.env["SPEEDHACK_SPEED"] if "SPEEDHACK_SPEED" in self.env and is_float(self.env["SPEEDHACK_SPEED"]) else None
++        env_configs['toggle'] = self.env["SPEEDHACK_TOGGLE"] if "SPEEDHACK_TOGGLE" in self.env and is_bool(self.env["SPEEDHACK_TOGGLE"]) else None
++        env_configs['keys'] = None
++
++        all_configs.append(env_configs)
++
++        # We remove these from the env in case they were invalid
++        if "SPEEDHACK_SPEED" in self.env:
++            del self.env["SPEEDHACK_SPEED"]
++        if "SPEEDHACK_TOGGLE" in self.env:
++            del self.env["SPEEDHACK_TOGGLE"]
++        if "SPEEDHACK_KEYS" in self.env:
++            env_keycodes = convert_keycodes(self.env["SPEEDHACK_KEYS"])
++            if env_keycodes > 0:
++                env_configs['keys'] = str(env_keycodes)
++            del self.env["SPEEDHACK_KEYS"]
++
++        # Load JSON configs into our config files
++        game_config = read_config_from_file('~/.speedhack/' + str(os.environ.get("SteamGameId", 0)) + '.json')
++        all_configs.append(game_config)
++        home_config = read_config_from_file('~/.speedhack/speedhack.json')
++        all_configs.append(home_config)
++        proton_config_path = os.path.dirname(sys.argv[0]) + "/speedhack.json"
++        proton_config = read_config_from_file(proton_config_path)
++        all_configs.append(proton_config)
++
++        # Finally set the configs using the first value found in our all_configs array that is not None
++        keys = get_first_key(all_configs, 'keys', str(convert_keycodes('PAGE_UP')))
++        if keys is not None:
++            if (self.log_file):
++                self.log_file.write("Setting Speedhack Keys to " + str(keys) + "\n")
++            self.env["SPEEDHACK_KEYS"] = keys
++        
++        toggle = get_first_key(all_configs, 'toggle', "0")
++        if toggle is not None:
++            if (self.log_file):
++                self.log_file.write("Setting Speedhack Toggle to " + str(toggle) + "\n")
++            self.env["SPEEDHACK_TOGGLE"] = toggle
++        
++        speed = get_first_key(all_configs, 'speed', "2.5")
++        if speed is not None:
++            if (self.log_file):
++                self.log_file.write("Setting Speedhack Speed to " + str(speed) + "\n")
++            self.env["SPEEDHACK_SPEED"] = speed
++
++        if (self.log_file):
++            self.log_file.write("Done setting up the speedhack environment\n")
++            self.log_file.flush()
++
++
+ if __name__ == "__main__":
+     if not "STEAM_COMPAT_DATA_PATH" in os.environ:
+         log("No compat data path?")
+diff --git a/speedhack.json.template b/speedhack.json.template
+new file mode 100644
+index 0000000..77fc931
+--- /dev/null
++++ b/speedhack.json.template
+@@ -0,0 +1,5 @@
++{
++    "speed": 2.5,
++    "toggle": 0,
++    "keys": "page_up"
++}
+\ No newline at end of file
+diff --git a/steam_helper/steam.cpp b/steam_helper/steam.cpp
+index 6a23b9a..76acae6 100644
+--- a/steam_helper/steam.cpp
++++ b/steam_helper/steam.cpp
+@@ -43,6 +43,7 @@
+ #include <limits.h>
+ #define _USE_GNU
+ #include <dlfcn.h>
++#include <signal.h>
+ 
+ #pragma push_macro("_WIN32")
+ #pragma push_macro("__cdecl")
+@@ -1555,6 +1556,8 @@ BOOL is_ptraced(void)
+     return ret;
+ }
+ 
++static DWORD WINAPI speedhack_thread(void *arg);
++
+ int main(int argc, char *argv[])
+ {
+     HANDLE wait_handle = INVALID_HANDLE_VALUE;
+@@ -1638,9 +1641,11 @@ int main(int argc, char *argv[])
+             CreateThread(NULL, 0, steam_drm_thread, child, 0, NULL);
+     }
+ 
+-    if (game_process)
++    if (game_process) {
+         NtSetInformationProcess( GetCurrentProcess(), (PROCESSINFOCLASS)1000 /* ProcessWineMakeProcessSystem */,
+                                  &wait_handle, sizeof(HANDLE *) );
++        CreateThread(NULL, 0, speedhack_thread, child, 0, NULL);
++    }
+ 
+     if(wait_handle != INVALID_HANDLE_VALUE)
+     {
+@@ -1661,3 +1666,207 @@ int main(int argc, char *argv[])
+ 
+     return rc;
+ }
++
++/*
++ Speedhack thread and hooks
++*/
++
++static bool speedhack_enabled = false;
++static bool speedhack_keys_enabled = true;
++static double speedhack_multiplier = 2.5;
++static unsigned int speedhack_activation_key = VK_PRIOR;
++static unsigned int speedhack_activation_key_2 = 0;
++static unsigned int speedhack_activation_key_3 = 0;
++static unsigned int speedhack_activation_key_4 = 0;
++static bool speedhack_toggle = 0;
++
++/*
++    Read settings from the proton python wrapper that are passed in via
++    the ENV vars.
++
++    SPEEDHACK_SPEED: (double) Determines the speed of the speedhack
++    SPEEDHACK_TOGGLE (bool) Turns on/off Toggle or Hold mode.
++    SPEEDHACK_KEYS   (int) Up to 4 keycodes that activate/deactivate the hack.
++*/
++static void speedhack_setup_env() {
++    WINE_TRACE("Checking ENV\n");
++    const char *speed = getenv("SPEEDHACK_SPEED");
++    if(speed && *speed) {
++        WINE_TRACE("SPEEDHACK_SPEED: %s\n", speed);
++        speedhack_multiplier=stod(std::string(speed));
++    }
++
++    const char *toggle = getenv("SPEEDHACK_TOGGLE");
++    if(toggle && *toggle) {
++        WINE_TRACE("SPEEDHACK_TOGGLE: %s\n", toggle);
++        speedhack_toggle=stoi(std::string(toggle));
++    }
++
++    const char *keys = getenv("SPEEDHACK_KEYS");
++    unsigned int key_value = 0;
++    if(keys && *keys) {
++        WINE_TRACE("SPEEDHACK_KEYS: %s\n", keys);
++        key_value=stoi(std::string(keys));
++        speedhack_activation_key = key_value & 0xFF;
++        speedhack_activation_key_2 = (key_value >> 8) & 0xFF;
++        speedhack_activation_key_3 = (key_value >> 16) & 0xFF;
++        speedhack_activation_key_4 = (key_value >> 24) & 0xFF;
++    }   
++}
++
++/*
++    The following signal handlers are used to adjust the settings of
++    the speedhack.
++
++    External programs can signal the "steam.exe" process with either
++    SIGUSR1 or SIGUSR2 and an integer value using sigqueue with a payload.
++
++    The intention behind these signals is to allow a potenetial extension
++    to the Deck UI to control/manage the speedhack (such as Steam Decky
++    Loader)
++*/
++
++/*
++    SIGUSR1 is used to update the speed and toggle fields of the speedhack.
++*/
++void speedhack_speed_toggle_signal(int sig, siginfo_t *sip, void *ptr) {
++    WINE_TRACE("Received signal to update speed/toggle settings.\n");
++
++    // The structure of this value is two flags packed into one signal
++    // Bit 1: Flag to indicate if toggle is being updated
++    // Bit 2: Value of toggle if updated
++    // Bit 3: Toggles on and off the speedhack if 1
++    // Bit 4: Toggles on and off keyboard input for the speedhack
++    // Bit 5: Flag to indicate if speed is being updated
++    // Bit 6+: Speed value as an integer (multiplied by 10)
++    unsigned int sig_value = sip->si_value.sival_int;
++    unsigned int update_toggle = sig_value & 1;
++    unsigned int toggle_value = (sig_value >> 1) & 1;
++    unsigned int toggle_speedhack = (sig_value >> 2) & 1;
++    unsigned int toggle_keys = (sig_value >> 3) & 1;
++    unsigned int update_speed = (sig_value >> 4) & 1;
++    unsigned int speed_value = (sig_value >> 5);
++
++    if (update_toggle > 0) {
++        WINE_TRACE("Changing Toggle To: %d\n", update_toggle);
++        speedhack_toggle = toggle_value;
++    }
++
++    if (update_speed > 0) {
++        WINE_TRACE("Changing Speed To: %d\n", speed_value);
++        speedhack_multiplier = (speed_value / 10.0);
++    }
++
++    if (toggle_keys > 0) {
++        speedhack_keys_enabled = !speedhack_keys_enabled;
++    }
++
++    if (toggle_speedhack > 0) {
++        WINE_TRACE("Toggling Speedhack");
++        if(!speedhack_enabled) {
++            wine_update_speedhack_multiplier((unsigned long)(speedhack_multiplier * 10));
++            speedhack_enabled = true;
++        } else if(speedhack_enabled) {
++            wine_update_speedhack_multiplier(10);
++            speedhack_enabled = false;
++        }
++    }
++}
++
++/*
++    SIGUSR2 is used to update which keys are used to activate the
++    speedhack.
++*/
++void speedhack_key_signal(int sig, siginfo_t *sip, void *ptr) {
++    WINE_TRACE("Received signal to update activation key.\n");
++    unsigned int sig_value = sip->si_value.sival_int;
++    speedhack_activation_key = sig_value & 0xFF;
++    speedhack_activation_key_2 = (sig_value >> 8) & 0xFF;
++    speedhack_activation_key_3 = (sig_value >> 16) & 0xFF;
++    speedhack_activation_key_4 = (sig_value >> 24) & 0xFF;
++}
++
++static void speedhack_setup_signals() {
++    WINE_TRACE("Setting up signal updates.\n");
++
++    struct sigaction speed_toggle_flags;
++    memset(&speed_toggle_flags, 0, sizeof (speed_toggle_flags));
++    speed_toggle_flags.sa_sigaction = speedhack_speed_toggle_signal;
++    speed_toggle_flags.sa_flags = SA_RESTART|SA_SIGINFO;
++    sigaction(SIGUSR1, &speed_toggle_flags, NULL);
++
++    struct sigaction key_flags;
++    memset(&key_flags, 0, sizeof (key_flags));
++    key_flags.sa_sigaction = speedhack_key_signal;
++    key_flags.sa_flags = SA_RESTART|SA_SIGINFO;
++    sigaction(SIGUSR2, &key_flags, NULL);
++}
++
++static bool speedhack_key_pressed() {
++    int pressed = 1;
++
++    if (speedhack_activation_key != 0) {
++        pressed = pressed && GetAsyncKeyState(speedhack_activation_key);
++    }
++
++    if (speedhack_activation_key_2 != 0) {
++        pressed = pressed && GetAsyncKeyState(speedhack_activation_key_2);
++    }
++
++    if (speedhack_activation_key_3 != 0) {
++        pressed = pressed && GetAsyncKeyState(speedhack_activation_key_3);
++    }
++
++    if (speedhack_activation_key_4 != 0) {
++        pressed = pressed && GetAsyncKeyState(speedhack_activation_key_4);
++    }
++    
++    if (!speedhack_activation_key && !speedhack_activation_key_2 && !speedhack_activation_key_3 && !speedhack_activation_key_4) {
++        pressed = 0;
++    }
++
++    return pressed;
++}
++
++static DWORD WINAPI speedhack_thread(void *arg)
++{
++
++    WINE_TRACE("Speedhack thread!\n");
++
++    speedhack_setup_env();
++    speedhack_setup_signals();
++
++    bool key_pressed = false;
++    bool last_key_pressed = 0; // Used to only trigger on initial press of key for toggle
++
++    do {
++        key_pressed = speedhack_key_pressed();
++            
++        if (speedhack_keys_enabled) {
++            if(speedhack_toggle) {
++                if(!speedhack_enabled && key_pressed && !last_key_pressed) {
++                    wine_update_speedhack_multiplier((unsigned long)(speedhack_multiplier * 10));
++                    speedhack_enabled = true;
++                } else if(speedhack_enabled && key_pressed && !last_key_pressed) {
++                    wine_update_speedhack_multiplier(10);
++                    speedhack_enabled = false;
++                }
++            } else {
++                if (!speedhack_enabled && key_pressed) {
++                    wine_update_speedhack_multiplier((unsigned long)(speedhack_multiplier * 10));
++                    speedhack_enabled = true;
++                }else if (speedhack_enabled && !key_pressed) {
++                    wine_update_speedhack_multiplier(10);
++                    speedhack_enabled = false;
++                }
++            }
++        }
++
++        last_key_pressed = key_pressed;
++
++        Sleep(50);
++    } while(1);
++
++
++    return 0;
++}
+\ No newline at end of file
