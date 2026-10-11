@@ -53,7 +53,7 @@ cd "$obj"
 
 # Build only the affected modules, their build tools, and helper import libraries.
 targets=(dlls/ntdll/all tools/winegcc/all dlls/winecrt0/libwinecrt0.a)
-imports=(ntdll kernel32 user32 advapi32 shell32 comdlg32 gdi32 shlwapi msi ole32)
+imports=(ucrtbase ntdll kernel32 user32 advapi32 shell32 comdlg32 gdi32 shlwapi msi ole32)
 for module in "${imports[@]}"; do
   targets+=("dlls/$module/lib$module.a")
 done
