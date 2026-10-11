@@ -3,7 +3,8 @@
 This project builds a minimally changed GE-Proton8-16 compatibility tool for Steam Deck.
 Builds run on GitHub Actions. No Linux, WSL, or Docker installation is required on your PC.
 
-**Status:** workflow prepared; compilation and runtime tests have not yet run.
+**Status:** both architecture builds, the 7,231-file audit, and 32-bit/64-bit timer tests passed.
+[Validated build](https://github.com/sevansup/GE-Proton8-16-SpeedHack/actions/runs/38167735048).
 An installable download is produced only after both architecture builds, the unchanged-file audit,
 and the timer tests succeed. A Steam Deck game test is still required afterward.
 
