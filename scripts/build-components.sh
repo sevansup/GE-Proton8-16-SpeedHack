@@ -53,7 +53,7 @@ cd "$obj"
 
 # Build only the affected modules, their build tools, and helper import libraries.
 targets=(dlls/ntdll/all tools/winegcc/all dlls/winecrt0/libwinecrt0.a)
-imports=(ucrtbase ntdll kernel32 user32 advapi32 shell32 comdlg32 gdi32 shlwapi msi ole32)
+imports=(ntdll kernel32 user32 advapi32 shell32 comdlg32 gdi32 shlwapi msi ole32)
 for module in "${imports[@]}"; do
   targets+=("dlls/$module/lib$module.a")
 done
@@ -79,7 +79,7 @@ cp -a "$ge/steam_helper/." "$helper/"
 cd "$helper"
 import_flags=()
 for module in "${imports[@]}" winecrt0; do import_flags+=("-L$obj/dlls/$module"); done
-"$obj/tools/winegcc/wineg++" -m"$bits" -mwindows -mno-cygwin \
+"$obj/tools/winegcc/wineg++" -m"$bits" -mwindows -mcygwin \
   --winebuild "$obj/tools/winebuild/winebuild" \
   -I"$obj/include" -I"$source_dir/include" -I"$source_dir/include/wine" \
   -I"$ge/lsteamclient/steamworks_sdk_142" -I"$ge/openvr/headers" \
