@@ -54,6 +54,11 @@ for module in "${imports[@]}"; do
   targets+=("dlls/$module/lib$module.a")
 done
 if [[ "$bits" == 64 ]]; then targets+=(server/all dlls/wow64/all); fi
+# The external Steam helper includes generated COM headers that module-only
+# builds do not otherwise request. Generate the public IDL headers first.
+for idl in "$source_dir"/include/*.idl; do
+  targets+=("include/$(basename "${idl%.idl}").h")
+done
 make -j"$(nproc)" "${targets[@]}"
 
 # Compile GE's own steam helper with the original speedhack addition.
