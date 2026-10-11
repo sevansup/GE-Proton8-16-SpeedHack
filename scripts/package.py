@@ -70,7 +70,7 @@ def main():
         matching = [s for s in sections if s.startswith(f"diff --git a/{filename} b/{filename}\n")]
         if len(matching) != 1:
             raise SystemExit(f"Missing or duplicate patch section: {filename}")
-        subprocess.run(["patch", "--batch", "--fuzz=0", "-p1"], input=matching[0],
+        subprocess.run(["patch", "--batch", "--no-backup-if-mismatch", "--fuzz=0", "-p1"], input=matching[0],
                        text=True, cwd=DEST, check=True)
     (DEST / "speedhack.json.template").rename(DEST / "speedhack.json")
     for filename in ("compatibilitytool.vdf", "version"):
