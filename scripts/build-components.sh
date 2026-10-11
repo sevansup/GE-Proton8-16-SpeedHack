@@ -21,6 +21,8 @@ if [[ "$bits" == 64 ]]; then
   host=x86_64-linux-gnu
   cross=x86_64-w64-mingw32
   arch=x86_64
+  pkg_host=x86_64-linux-gnu
+  pkg_cross=x86_64-w64-mingw32
   lib=lib64
   extra=(--enable-win64)
   arch_flags=-mcmodel=small
@@ -28,6 +30,8 @@ else
   host=i686-linux-gnu
   cross=i686-w64-mingw32
   arch=i386
+  pkg_host=i386-linux-gnu
+  pkg_cross=i386-w64-mingw32
   lib=lib
   extra=()
   arch_flags=-mstackrealign
@@ -40,8 +44,8 @@ export CFLAGS="$flags" CXXFLAGS="$flags -std=c++17" CPPFLAGS="$flags"
 export CROSSCFLAGS="$flags" CROSSCXXFLAGS="$flags -std=c++17"
 export CROSSLDFLAGS="-Wl,--file-alignment,4096"
 export PKG_CONFIG="$host-pkg-config"
-export PKG_CONFIG_LIBDIR="/usr/lib/$host/pkgconfig:/usr/share/pkgconfig"
-export CROSSPKG_CONFIG_LIBDIR="/usr/lib/$cross/pkgconfig:/usr/share/pkgconfig"
+export PKG_CONFIG_LIBDIR="/usr/lib/$pkg_host/pkgconfig:/usr/share/pkgconfig"
+export CROSSPKG_CONFIG_LIBDIR="/usr/lib/$pkg_cross/pkgconfig:/usr/share/pkgconfig"
 
 cd "$obj"
 "$source_dir/configure" --prefix="$obj/install" --libdir="$obj/install/$lib" \
@@ -56,9 +60,16 @@ done
 if [[ "$bits" == 64 ]]; then targets+=(server/all dlls/wow64/all); fi
 # The external Steam helper includes generated COM headers that module-only
 # builds do not otherwise request. Generate the public IDL headers first.
-for idl in "$source_dir"/include/*.idl; do
-  targets+=("include/$(basename "${idl%.idl}").h")
-done
+while IFS= read -r header; do targets+=("$header"); done < <(
+  python3 - <<'HEADERS'
+import re
+from pathlib import Path
+for line in Path("Makefile").read_text().splitlines():
+    match = re.match(r"^(include/[^\s:]+\.h):", line)
+    if match:
+        print(match.group(1))
+HEADERS
+)
 make -j"$(nproc)" "${targets[@]}"
 
 # Compile GE's own steam helper with the original speedhack addition.
