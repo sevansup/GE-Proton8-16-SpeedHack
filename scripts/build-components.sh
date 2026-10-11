@@ -9,6 +9,8 @@ ge="$project/work/ge"
 obj="$project/work/build$bits"
 overlay="$project/output/overlay$bits"
 mkdir -p "$obj" "$overlay/files"
+trap 'rc=$?; if [[ $rc != 0 && -f "$obj/config.log" ]]; then tail -180 "$obj/config.log"; fi' EXIT
+export CCACHE_DISABLE=1
 
 cd "$source_dir"
 autoreconf -fiv

@@ -12,6 +12,10 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: speedhack-${{ github.ref }}
   cancel-in-progress: false
@@ -40,7 +44,7 @@ jobs:
         run: docker pull "$SDK"
       - name: Compile only changed runtime components
         run: |
-          docker run --rm --user "$(id -u):$(id -g)" \
+          docker run --rm --user "$(id -u):$(id -g)" --env CCACHE_DISABLE=1 --env HOME=/tmp \
             --volume "$GITHUB_WORKSPACE:/work" --workdir /work \
             "$SDK" bash scripts/build-components.sh '${{ matrix.bits }}' \
             2>&1 | tee build-${{ matrix.bits }}.log
@@ -58,7 +62,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-log-${{ matrix.bits }}
-          path: build-${{ matrix.bits }}.log
+          path: |
+            build-${{ matrix.bits }}.log
+            work/build${{ matrix.bits }}/config.log
           retention-days: 7
 
   package:
@@ -80,7 +86,7 @@ jobs:
       - name: Check 32-bit and 64-bit speed switching
         run: |
           docker pull "$SDK"
-          docker run --rm --user "$(id -u):$(id -g)" \
+          docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp \
             --volume "$GITHUB_WORKSPACE:/work" --workdir /work \
             "$SDK" bash scripts/smoke-test.sh 2>&1 | tee output/timer-tests.log
       - name: Create installable archive preserving Linux permissions and symlinks
